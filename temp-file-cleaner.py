@@ -1,14 +1,27 @@
-from itertools import count
 import os
+import sys
+import ctypes
 import shutil
-import tempfile
 
 VERSION = "1.0.0"
 
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def elevate():
+    ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, " ".join(sys.argv), None, 1
+    )
+    sys.exit()
+
 DEFAULT_FOLDERS = [
-    tempfile.gettempdir(),
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Temp"),
+    os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Prefetch"),
     os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Temp"),
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Temp"),]
+]
 
 def ask(user1):
     val = input(f"  {user1} ").strip().lower()
@@ -30,12 +43,21 @@ def clean_folder(path):
     deleted = 0
     skipped = 0
     if not os.path.exists(path):
-        print(f"  [NOT FOUND]  {path}")
+        print(f"  [NOT FOUND]   {path}")
         return
 
-    print(f"  [SCANNING]   {path}")
+    print(f"  [SCANNING]    {path}")
 
-    for name in os.listdir(path):
+    try:
+        entries = os.listdir(path)
+    except PermissionError:
+        print(f"  [ACCESS DENIED] {path}\n")
+        return
+    except Exception as e:
+        print(f"  [ERROR]  {e}\n")
+        return
+
+    for name in entries:
         full = os.path.join(path, name)
         try:
             if os.path.isfile(full) or os.path.islink(full):
@@ -43,9 +65,12 @@ def clean_folder(path):
             else:
                 shutil.rmtree(full)
             deleted += 1
+        except PermissionError:
+            skipped += 1
         except Exception:
             skipped += 1
-    print(f"  [DONE]\nRemoved: {deleted}  |  Skipped: {skipped}\n")
+
+    print(f"  [DONE]\n  Removed: {deleted}  |  Skipped: {skipped}\n")
 
 def run_cleanup(folders):
     print("\n" + "-" * 45)
@@ -75,22 +100,23 @@ def get_folders():
                 print("  1    -> One folder")
                 print("  2    -> Two folders\n")
                 print("  EXIT -> Quit\n")
-                
-                count = ask("Choice (1/2):")
-                if count == "EXIT":
+
+                num = ask("Choice (1/2):")
+                if num == "EXIT":
                     return "EXIT"
-                if count == "BACK":
+                if num == "BACK":
                     break
-                if count not in ("1", "2"):
+                if num not in ("1", "2"):
                     print("\n  [ERROR] Enter 1 or 2.")
                     input("  Press Enter to try again...")
                     continue
+
                 paths = []
                 go_back = False
 
-                for i in range(int(count)):
+                for i in range(int(num)):
                     while True:
-                        print(f"  Enter path for folder {i + 1} of {count}\n")
+                        print(f"  Enter path for folder {i + 1} of {num}\n")
                         path = ask_path(f"Folder {i + 1} path:")
                         if path == "EXIT":
                             return "EXIT"
@@ -119,8 +145,7 @@ def main():
         while True:
             choice = ask("Run again? (repeat / exit):")
             if choice == "repeat":
-                break  
-
+                break
             if choice == "EXIT":
                 folders = "EXIT"
                 break
@@ -128,8 +153,12 @@ def main():
 
         if folders == "EXIT":
             break
+
     print("  Goodbye!\n")
     print("=" * 20 + "\n")
 
 if __name__ == "__main__":
+    if not is_admin():
+        print("  [INFO] Admin rights needed. Requesting elevation...")
+        elevate()
     main()
